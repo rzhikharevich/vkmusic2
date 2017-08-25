@@ -6,7 +6,11 @@ import requests as req
 from bs4 import BeautifulSoup
 import json
 import os
+import sys
 from pyduktape import DuktapeContext
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 def soup(s):
     return BeautifulSoup(s, "html.parser")
@@ -214,10 +218,7 @@ class Session:
 
         audios = json.loads(json_text)["list"]
 
-        return list(map(
-            lambda a: Audio(f"{a[1]}_{a[0]}", a[4], a[3], None),
-            audios
-        ))
+        return list(map(Audio.from_raw_array, audios))
 
     def fetch_audio_urls(self, audios):
         resp = self._session.post("https://vk.com/al_audio.php", data={
@@ -231,10 +232,7 @@ class Session:
 
         audios_ = json.loads(json_text)
 
-        return list(map(
-            lambda a: Audio(f"{a[1]}_{a[0]}", a[4], a[3], weird_decode(a[2])),
-            audios_
-        ))
+        return list(map(Audio.from_raw_array, audios_))
 
     def download(self, url):
         return self._session.get(url)
@@ -279,6 +277,21 @@ class Audio:
         self.author = author
         self.title = title
         self.url = url
+
+    @classmethod
+    def from_raw_array(cls, a):
+        return cls(
+            f"{a[1]}_{a[0]}",
+            soup(a[4]).string,
+            soup(a[3]).string,
+            weird_decode(a[2]) if len(a[2]) > 0 else None
+        )
+
+def get_data_root():
+    if sys.platform == "windows":
+        return os.getcwd()
+    else:
+        return (os.environ["XDG_DATA_HOME"] or "~/.local/share") + "/vkmusic"
     
 if __name__ == "__main__":
     ap = ArgumentParser()
@@ -302,12 +315,7 @@ if __name__ == "__main__":
 
     args = ap.parse_args()
 
-    # TODO: Windows compat
-    data_root = os.path.join(
-        (os.environ["XDG_DATA_HOME"] or "~/.local/share"),
-        "vkmusic"
-    )
-    
+    data_root = get_data_root()
     session_path = os.path.join(data_root, "session.json")
 
     if not os.path.exists(data_root):
@@ -358,7 +366,7 @@ if __name__ == "__main__":
             titles.add(elems[1])
         
     audio_list = session.fetch_audio_list()
-
+    
     def audio_pred(a):
         if a.title in titles:
             return True
