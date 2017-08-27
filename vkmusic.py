@@ -231,7 +231,7 @@ class Session:
         resp_assert(json_text is not None)
 
         audios_ = json.loads(json_text)
-
+        
         return list(map(Audio.from_raw_array, audios_))
 
     def download(self, url):
@@ -391,8 +391,8 @@ if __name__ == "__main__":
                 os.mkdir(author_dir)
                 dirs.add(author_dir)
 
-            title_pc = audio.title.replace("/", "") + ".mp3"
-                
+            title_pc = audio.title.replace("/", "|") + ".mp3"
+
             path = os.path.join(author_dir, title_pc)
 
             if not os.path.exists(path):
