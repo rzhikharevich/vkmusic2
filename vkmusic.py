@@ -177,7 +177,7 @@ class Session:
     def serialize(self):
         kv = dict(map(
             lambda k: (k, self._session.cookies.get(k)),
-            cookie_ids
+            Session._cookie_ids
         ))
 
         kv["uid"] = self._uid
@@ -342,9 +342,12 @@ if __name__ == "__main__":
             "Consider using the '--email' flag."
         ))
 
-    if args.audios is None and args.email is None:
-        ap.print_help()
-        exit(1)
+    if args.audios is None:
+        if args.email is None:
+            ap.print_help()
+            exit(1)
+        else:
+            exit(0)
         
     filter_table = {}
     titles = set()
