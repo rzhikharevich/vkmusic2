@@ -196,20 +196,64 @@ class Session:
         session._uid = kv["uid"]
             
         return session
-    
-    def fetch_audio_list(self):
-        return \
-          self._fetch_partial_audio_list(0) +\
-          self._fetch_partial_audio_list(100)
 
-    def _fetch_partial_audio_list(self, offset):
+    def fetch_playlist_list(self):
+        return list(self._fetch_playlist_list_gen())
+    
+    def _fetch_playlist_list_gen(self):
+        resp = self._session.get("https://vk.com/audio?section=playlists")
+
+        doc = soup(resp.text)
+
+        items = doc.find("div", {"class": "_audio_page_block__playlists_items"})
+        resp_assert(items is not None)
+
+        for item in items.children:
+            cover = item.find("a", {"class": "audio_pl__cover"})
+            resp_assert(cover is not None)
+
+            href = cover.get("href")
+            resp_assert(href is not None)
+
+            pfx = "audio_playlist"
+            
+            pfx_base = href.find(pfx)
+            resp_assert(pfx_base != -1)
+
+            owner_id_etc = href[pfx_base+len(pfx):]
+
+            sep_idx = owner_id_etc.find("_")
+            resp_assert(sep_idx != -1)
+
+            owner_id = owner_id_etc[:sep_idx]
+
+            pl_id = owner_id_etc[sep_idx+1:]
+
+            title = item.find("a", {"class": "audio_pl__title"})
+            resp_assert(title is not None)
+
+            yield Playlist(owner_id, pl_id, title.string)
+            
+    def fetch_audio_list(self, pl):
+        return \
+          self._fetch_partial_audio_list(pl, 0) +\
+          self._fetch_partial_audio_list(pl, 100)
+
+    def _fetch_partial_audio_list(self, pl, offset):
+        if pl is None:
+            oid = self._uid
+            pid = "-1"
+        else:
+            oid = pl.owner_id
+            pid = pl.id
+        
         resp = self._session.post("https://vk.com/al_audio.php", data={
             "act": "load_section",
             "al": "1",
             "claim": "0",
             "offset": offset,
-            "owner_id": self._uid,
-            "playlist_id": "-1",
+            "owner_id": oid,
+            "playlist_id": pid,
             "type": "playlist"
         })
         
@@ -271,6 +315,12 @@ class AuthResult:
     def is_complete(self):
         return self._is_complete
 
+class Playlist:
+    def __init__(self, owner_id, id, title):
+        self.owner_id = owner_id
+        self.id = id
+        self.title = title
+    
 class Audio:
     def __init__(self, id, author, title, url):
         self.id = id
@@ -291,7 +341,8 @@ def get_data_root():
     if sys.platform == "windows":
         return os.getcwd()
     else:
-        return (os.environ["XDG_DATA_HOME"] or "~/.local/share") + "/vkmusic"
+        default = os.path.expanduser("~/.local/share")
+        return os.environ.get("XDG_DATA_HOME", default) + "/vkmusic"
     
 if __name__ == "__main__":
     ap = ArgumentParser()
@@ -305,6 +356,11 @@ if __name__ == "__main__":
     )
 
     ap.add_argument(
+        "-p", "--playlist",
+        help="playlist to scan"
+    )
+    
+    ap.add_argument(
         "-a", "--audios",
         help=(
             "space-separated list of audios to download, "
@@ -317,7 +373,7 @@ if __name__ == "__main__":
 
     data_root = get_data_root()
     session_path = os.path.join(data_root, "session.json")
-
+    
     if not os.path.exists(data_root):
         os.makedirs(data_root)
     
@@ -342,42 +398,58 @@ if __name__ == "__main__":
             "Consider using the '--email' flag."
         ))
 
-    if args.audios is None:
+        exit(1)
+
+    if args.playlist is None and args.audios is None:
         if args.email is None:
             ap.print_help()
             exit(1)
         else:
             exit(0)
-        
-    filter_table = {}
-    titles = set()
-        
-    for audio in args.audios:
-        elems = audio.split(":", maxsplit=1)
 
-        if len(elems) == 1:
-            filter_table[elems[0]] = True
-        elif len(elems[0]) > 0:
-            if elems[0] not in filter_table:
-                filter_table[elems[0]] = set()
+    if args.playlist is not None:
+        playlists = session.fetch_playlist_list()
 
-            if len(elems[1]) == 0:
+        try:
+            playlist = next(pl for pl in playlists if pl.title == args.playlist)
+        except StopIteration:
+            print("Playlist not found.")
+            exit(1)
+    else:
+        playlist = None
+
+    audio_list = session.fetch_audio_list(playlist)
+
+    if args.audios is None:
+        downloads = audio_list
+    else:
+        filter_table = {}
+        titles = set()
+
+        for audio in args.audios:
+            elems = audio.split(":", maxsplit=1)
+
+            if len(elems) == 1:
                 filter_table[elems[0]] = True
-            elif isinstance(filter_table.get(elems[0]), set):
-                filter_table[elems[0]].add(elems[1])
-        else:
-            titles.add(elems[1])
-        
-    audio_list = session.fetch_audio_list()
+            elif len(elems[0]) > 0:
+                if elems[0] not in filter_table:
+                    filter_table[elems[0]] = set()
+
+                if len(elems[1]) == 0:
+                    filter_table[elems[0]] = True
+                elif isinstance(filter_table.get(elems[0]), set):
+                    filter_table[elems[0]].add(elems[1])
+            else:
+                titles.add(elems[1])
     
-    def audio_pred(a):
-        if a.title in titles:
-            return True
-        else:
-            filt = filter_table.get(a.author)
-            return filt is not None and (filt == True or a.title in filt)
-    
-    downloads = filter(audio_pred, audio_list)
+        def audio_pred(a):
+            if a.title in titles:
+                return True
+            else:
+                filt = filter_table.get(a.author)
+                return filt is not None and (filt == True or a.title in filt)
+
+        downloads = filter(audio_pred, audio_list)
 
     dirs = set(os.listdir("."))
 
