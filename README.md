@@ -12,9 +12,3 @@ is in that vkmusic2 requires your login credentials (as apposed to using API
 tokens) to impersonate the web version. Breakage is also more likely this way.
 
 [1]: https://github.com/rzhikharevich/vkmusic
-
-## Missing Things
-
-* a Python implementation of decode-uri.js (which is an excerpt from the 
-official web version; that's not completely legal to use that actually...)
-* access to audios outside the current user's list
